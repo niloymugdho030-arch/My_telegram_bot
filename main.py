@@ -91,6 +91,3 @@ threading.Thread(target=run_flask).start()
 
 print("🤖 সার্ভার চালু হচ্ছে...")
 bot.infinity_polling()
- 
-        
-                import

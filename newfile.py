@@ -1,2 +1,3 @@
 google-genai
 pyTelegramBotAPI
+flask

@@ -90,4 +90,5 @@ threading.Thread(target=run_flask).start()
 # -----------------------------------------------------------------
 
 print("🤖 সার্ভার চালু হচ্ছে...")
-bot.infinity_polling()
+bot.infinity_polling(timeout=10, long_polling_timeout=5)
+

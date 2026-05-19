@@ -6,7 +6,7 @@ from google import genai
 from google.genai import types
 
 # ----------------- এনভায়রনমেন্ট ভ্যারিয়েবল -----------------
-# রেন্ডার ড্যাশবোর্ড থেকে টোকেনগুলো নিজে থেকেই লোড হবে
+# রেন্ডার ড্যাশবোর্ডে সেট করা টোকেনগুলো নিজে থেকেই লোড হবে
 TELEGRAM_BOT_TOKEN = os.environ.get("TG_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_KEY")
 # -----------------------------------------------------------
@@ -15,15 +15,21 @@ GEMINI_API_KEY = os.environ.get("GEMINI_KEY")
 client = genai.Client(api_key=GEMINI_API_KEY)
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 
+# আপডেট করা সিস্টেম প্রম্পট (যাতে ল্যাটেক্স কোড বা হিজিবিজি চিহ্ন না আসে)
 system_prompt = (
     "তুমি একজন অত্যন্ত বুদ্ধিমান, অমায়িক এবং অল-রাউন্ডার পার্সোনাল এআই অ্যাসিস্ট্যান্ট। "
-    "তোমার কাজ হলো ব্যবহারকারীকে পড়াশোনা (বিজ্ঞান, গণিত, রসায়ন), কোডিং, দৈনন্দিন পরিকল্পনা, "
-    "এবং যেকোনো জটিল বিষয় সহজে বুঝতে সাহায্য করা। উত্তর সবসময় স্পষ্ট, সহজবোধ্য এবং টু-দ্য-পয়েন্ট রাখবে।"
+    "তোমার কাজ হলো ব্যবহারকারীকে পড়াশোনা (বিজ্ঞান, গণিত, রসায়ন), কোডিং, এবং যেকোনো জটিল বিষয় সহজে বুঝতে সাহায্য করা।\n\n"
+    "⚠️ অত্যন্ত গুরুত্বপূর্ণ নির্দেশ:\n"
+    "১. তোমার উত্তরের কোথাও কোনো প্রকার LaTeX বা গাণিতিক কোড (যেমন: $, \\frac, \\sin, \\delta, \\approx, \\circ) ব্যবহার করবে না।\n"
+    "২. সমস্ত গাণিতিক সমীকরণ ও প্রতীক সাধারণ টেক্সট এবং সাধারণ চিহ্নে লিখবে। "
+    "যেমন: ভগ্নাংশ লিখবে (A+D)/2 আকারে, ডিগ্রী বোঝাতে লিখবে 'ডিগ্রী' বা শুধু সংখ্যা, এবং গুণের জন্য '*' ব্যবহার করবে।\n"
+    "৩. উত্তর সবসময় স্পষ্ট, প্লেইন টেক্সট এবং বাংলায় সুন্দর করে গুছিয়ে টু-দ্য-পয়েন্ট রাখবে।"
 )
 
 user_chats = {}
 
 def get_or_create_chat(user_id):
+    # নতুন চ্যাট শুরু হলে বা রিসেট হলে আগের মেমোরি ক্লিয়ার হবে
     if user_id not in user_chats:
         user_chats[user_id] = client.chats.create(
             model="gemini-2.5-flash",
@@ -36,6 +42,11 @@ def get_or_create_chat(user_id):
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
+    user_id = message.from_user.id
+    # যদি আগে থেকে চ্যাট সেশন থাকে, তবে তা ডিলিট করে ফ্রেশ স্টার্ট করা হবে
+    if user_id in user_chats:
+        del user_chats[user_id]
+        
     welcome_text = (
         "👋 হ্যালো! আমি আপনার পার্সোনাল অল-রাউন্ডার এআই অ্যাসিস্ট্যান্ট।\n\n"
         "📚 পড়াশোনা, গণিত, রসায়ন, ফিজিক্সের সমস্যা\n"
@@ -63,7 +74,10 @@ def handle_photo(message):
         file_info = bot.get_file(message.photo[-1].file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         image_bytes = types.Part.from_bytes(data=downloaded_file, mime_type="image/jpeg")
-        prompt = message.caption if message.caption else "এই ছবিটি বিশ্লেষণ করো এবং সমাধান বুঝিয়ে দাও।"
+        
+        # ছবির উত্তরের জন্যও ল্যাটেক্স বন্ধ করার প্রম্পট জুঁড়ে দেওয়া হয়েছে
+        user_caption = message.caption if message.caption else "এই ছবিটি বিশ্লেষণ করো এবং সমাধান বুঝিয়ে দাও।"
+        prompt = f"{user_caption}\n\n(মনে রাখবে: উত্তরের কোথাও কোনো LaTeX বা $ চিহ্ন ব্যবহার করা যাবে না। সাধারণ টেক্সটে উত্তর দাও।)"
         
         response = client.models.generate_content(
             model="gemini-2.5-flash",
@@ -85,10 +99,11 @@ def run_flask():
     port = int(os.environ.get('PORT', 5000))
     flask_app.run(host='0.0.0.0', port=port)
 
-# ব্যাকগ্রাউন্ড থ্রেডে ফ্লাস্ক সার্ভার চালু করা (পোর্ট স্ক্যান সাকসেস করার জন্য)
+# ব্যাকগ্রাউন্ড থ্রেডে ফ্লাস্ক সার্ভার চালু করা
 threading.Thread(target=run_flask).start()
 # -----------------------------------------------------------------
 
 print("🤖 সার্ভার চালু হচ্ছে...")
-bot.infinity_polling(timeout=10, long_polling_timeout=5)
 
+# রিস্টার্ট এবং হ্যাং হওয়া থেকে বাঁচানোর জন্য টাইম-আউট সেট করা হয়েছে
+bot.infinity_polling(timeout=10, long_polling_timeout=5)
